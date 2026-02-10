@@ -6,12 +6,9 @@ import {
   Plus,
   Sparkles,
   Trash2,
-  Sun,
-  Moon,
-  Monitor,
-  Settings,
-  History,
   MoreHorizontal,
+  User,
+  Settings,
 } from "lucide-react"
 
 import {
@@ -46,7 +43,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { useConversationStore, formatConversationTime } from "@/store/useConversationStore"
-import { useThemeStore, getThemeIcon, getThemeLabel } from "@/store/useThemeStore"
+import { useUserStore } from "@/store/useUserStore"
+import { UserProfileDialog } from "@/components/user-profile-dialog"
 import { cn } from "@/lib/utils"
 
 // 对话项组件 - 使用 memo 优化性能
@@ -161,12 +159,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     createConversation, 
     setCurrentConversation,
     deleteConversation,
-    clearAllConversations 
   } = useConversationStore()
   
-  const { theme, toggleTheme } = useThemeStore()
-  const [showClearAllDialog, setShowClearAllDialog] = React.useState(false)
-  
+  const { setOpen: setUserProfileOpen } = useUserStore()
+
   // 使用 useCallback 优化回调函数
   const handleNewConversation = React.useCallback(() => {
     // 创建新对话时清除当前奇门报告，让用户重新生成
@@ -183,180 +179,67 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     deleteConversation(id)
   }, [deleteConversation])
   
-  const handleClearAll = React.useCallback(() => {
-    setShowClearAllDialog(true)
-  }, [])
-  
-  const confirmClearAll = React.useCallback(() => {
-    clearAllConversations()
-    setShowClearAllDialog(false)
-  }, [clearAllConversations])
-  
-  // 使用 useMemo 优化主题图标渲染
-  const themeIconComponent = React.useMemo(() => {
-    const iconName = getThemeIcon(theme)
-    const iconProps = { className: "w-4 h-4" }
-    
-    switch (iconName) {
-      case 'sun':
-        return <Sun {...iconProps} />
-      case 'moon':
-        return <Moon {...iconProps} />
-      case 'monitor':
-        return <Monitor {...iconProps} />
-      default:
-        return <Moon {...iconProps} />
-    }
-  }, [theme])
-  
-  // 使用 useMemo 优化对话列表渲染
-  const conversationList = React.useMemo(() => {
-    if (conversations.length === 0) {
-      return (
-        <div className="text-sm text-muted-foreground p-4 text-center">
-          <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
-          <p>暂无对话记录</p>
-          <p className="text-xs mt-1">点击上方按钮开始新对话</p>
-        </div>
-      )
-    }
-    
-    return (
-      <ScrollArea className="h-[400px]">
-        <SidebarMenu>
-          {conversations.map((conversation) => (
-            <ConversationItem
-              key={conversation.id}
-              conversation={conversation}
-              isActive={currentConversationId === conversation.id}
-              onSelect={handleSelectConversation}
-              onDelete={handleDeleteConversation}
-            />
-          ))}
-        </SidebarMenu>
-      </ScrollArea>
-    )
-  }, [conversations, currentConversationId, handleSelectConversation, handleDeleteConversation])
-  
   return (
-    <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground py-3">
-              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                <Sparkles className="size-4" />
-              </div>
-              <div className="grid flex-1 text-left leading-relaxed ml-1">
-                <span className="truncate font-semibold text-base">奇门遁甲</span>
-                <span className="truncate text-xs text-muted-foreground mt-0.5">AI智能解读</span>
-              </div>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+    <Sidebar className="border-r border-border/40" {...props}>
+      <SidebarHeader className="p-4 border-b border-border/40">
+        <Button 
+          onClick={handleNewConversation}
+          className="w-full justify-start gap-2 bg-primary text-primary-foreground hover:bg-primary/90 shadow-none font-normal"
+          size="lg"
+        >
+          <Plus className="w-4 h-4" />
+          <span className="group-data-[collapsible=icon]:hidden">新建排盘</span>
+        </Button>
       </SidebarHeader>
       
       <SidebarContent>
-        {/* New Conversation Button */}
         <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <Button 
-                  onClick={handleNewConversation}
-                  className="w-full justify-start gap-2"
-                  variant="outline"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span className="group-data-[collapsible=icon]:hidden">新建对话</span>
-                </Button>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        
-        {/* Conversation History */}
-        <SidebarGroup className="flex-1">
-          <SidebarGroupLabel className="flex items-center gap-2">
-            <History className="w-4 h-4" />
-            <span className="group-data-[collapsible=icon]:hidden">对话历史</span>
-            {conversations.length > 0 && (
-              <span className="text-xs bg-muted px-1.5 py-0.5 rounded group-data-[collapsible=icon]:hidden">
-                {conversations.length}
-              </span>
-            )}
+          <SidebarGroupLabel className="px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            历史记录
           </SidebarGroupLabel>
-          <SidebarGroupContent className="flex-1">
-            {conversationList}
+          <SidebarGroupContent>
+            <SidebarMenu className="px-2">
+              {/* 历史记录列表 */}
+              <ScrollArea className="h-[calc(100vh-180px)]">
+                <div className="space-y-1 pr-3">
+                  {conversations.length > 0 ? (
+                    conversations.map((conversation) => (
+                      <ConversationItem 
+                        key={conversation.id}
+                        conversation={conversation}
+                        isActive={currentConversationId === conversation.id}
+                        onSelect={handleSelectConversation}
+                        onDelete={handleDeleteConversation}
+                      />
+                    ))
+                  ) : (
+                    <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      <p>暂无历史记录</p>
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
       
-      <SidebarFooter>
-        <SidebarMenu>
-          {/* Clear All Button */}
-          {conversations.length > 0 && (
-            <SidebarMenuItem>
-              <Button 
-                onClick={handleClearAll}
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start gap-2 text-muted-foreground hover:text-destructive transition-colors"
-                aria-label="清空所有对话"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span className="group-data-[collapsible=icon]:hidden">清空所有对话</span>
-              </Button>
-            </SidebarMenuItem>
-          )}
-          
-          {/* Theme Toggle */}
-          <SidebarMenuItem>
-            <SidebarMenuButton 
-              onClick={toggleTheme} 
-              className="gap-2 transition-colors hover:bg-sidebar-accent"
-              aria-label={`切换主题，当前: ${getThemeLabel(theme)}`}
-            >
-              {themeIconComponent}
-              <span className="group-data-[collapsible=icon]:hidden">{getThemeLabel(theme)}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          
-          {/* Settings */}
-          <SidebarMenuItem>
-            <SidebarMenuButton 
-              className="gap-2 transition-colors hover:bg-sidebar-accent"
-              aria-label="打开设置"
-            >
-              <Settings className="w-4 h-4" />
-              <span className="group-data-[collapsible=icon]:hidden">设置</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+      <SidebarFooter className="border-t border-border/40 p-4 space-y-2">
+        <Button 
+          variant="outline" 
+          className="w-full justify-start gap-2" 
+          onClick={() => setUserProfileOpen(true)}
+        >
+          <User className="w-4 h-4" />
+          <span className="group-data-[collapsible=icon]:hidden">我的命盘</span>
+        </Button>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center opacity-60">
+          <Sparkles className="w-3 h-3" />
+          <span className="group-data-[collapsible=icon]:hidden font-light tracking-wide">奇门遁甲 AI</span>
+        </div>
       </SidebarFooter>
-      
       <SidebarRail />
-      
-      {/* Clear All Confirmation Dialog */}
-      <AlertDialog open={showClearAllDialog} onOpenChange={setShowClearAllDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>确认清空所有对话</AlertDialogTitle>
-            <AlertDialogDescription>
-              确定要清空所有对话记录吗？这将删除 {conversations.length} 个对话，此操作无法撤销。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={confirmClearAll} 
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              清空所有
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <UserProfileDialog />
     </Sidebar>
   )
 }

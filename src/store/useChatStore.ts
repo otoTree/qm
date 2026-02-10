@@ -10,7 +10,7 @@ export const useChatStore = create<ChatState>()(
             messages: [],
 
             // 添加新消息（添加参数类型）
-            addMessage: (role: MessageRole, content: string) =>
+            addMessage: (role: MessageRole, content: string, type: 'text' | 'report' = 'text', reportId?: string) =>
                 set((state: ChatState) => ({
                     messages: [
                         ...state.messages,
@@ -18,7 +18,9 @@ export const useChatStore = create<ChatState>()(
                             id: nanoid(),
                             role,
                             content,
-                            timestamp: Date.now()
+                            timestamp: Date.now(),
+                            type,
+                            reportId
                         }
                     ]
                 })),

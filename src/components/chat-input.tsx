@@ -2,14 +2,13 @@
 
 import React, { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Card } from '@/components/ui/card'
-import { Calendar, Clock, Send, Sparkles, User, MessageSquare } from 'lucide-react'
-import { QimenInput, QuestionType } from '@/types/qimen'
+import { Send, Sparkles } from 'lucide-react'
+import { QimenInput } from '@/types/qimen'
 import { useQimenStore } from '@/store/useQimenStore'
 import { useConversationStore } from '@/store/useConversationStore'
 import { useChatStore } from '@/store/useChatStore'
+import { useUserStore } from '@/store/useUserStore'
 import { AIService } from '@/lib/ai-service'
 import { MessageRole } from '@/types/chatmessage'
 import { nanoid } from 'nanoid'
@@ -20,35 +19,25 @@ interface ChatInputProps {
   className?: string
 }
 
-type InputMode = 'qimen' | 'chat'
-
 export function ChatInput({ onQimenGenerated, onMessageSent, className }: ChatInputProps) {
-  const [mode, setMode] = useState<InputMode>('qimen')
   const [isLoading, setIsLoading] = useState(false)
   const [chatMessage, setChatMessage] = useState('')
-  
-  // Qimen input states
-  const [qimenInput, setQimenInput] = useState<Partial<QimenInput>>({
-    datetime: new Date(),
-    questionType: 'general',
-    gender: 'male',
-    ju_model: 0,
-    pan_model: 1,
-    zhen: 2
-  })
+  const [isFocused, setIsFocused] = useState(false)
   
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   
   // Store hooks
-  const { generateReport, isGenerating, error: qimenError } = useQimenStore()
+  const { generateReport } = useQimenStore()
   const { 
     createConversation, 
     getCurrentConversation, 
     addMessageToConversation,
+    updateMessageInConversation,
     setCurrentConversation,
     currentConversationId 
   } = useConversationStore()
-  const { addMessage } = useChatStore()
+  const { addMessage, updateMessage } = useChatStore()
+  const { profile } = useUserStore()
   
   // Auto-resize textarea
   useEffect(() => {
@@ -58,133 +47,132 @@ export function ChatInput({ onQimenGenerated, onMessageSent, className }: ChatIn
     }
   }, [chatMessage])
   
-  // Check if we have a current conversation with Qimen report
-  const currentConversation = getCurrentConversation()
-  const hasQimenReport = currentConversation?.qimenReport
-  
-  // Auto-switch to chat mode if we have a Qimen report
-  useEffect(() => {
-    if (hasQimenReport) {
-      setMode('chat')
-    }
-  }, [hasQimenReport])
-  
-  const handleQimenSubmit = async () => {
-    if (!qimenInput.datetime || !qimenInput.questionType) {
-      return
-    }
-    
-    setIsLoading(true)
-    
-    try {
-      const input: QimenInput = {
-        datetime: qimenInput.datetime,
-        questionType: qimenInput.questionType,
-        gender: qimenInput.gender || 'male',
-        year: qimenInput.datetime.getFullYear(),
-        month: qimenInput.datetime.getMonth() + 1,
-        day: qimenInput.datetime.getDate(),
-        hours: qimenInput.datetime.getHours(),
-        minute: qimenInput.datetime.getMinutes(),
-        ju_model: qimenInput.ju_model || 0,
-        pan_model: qimenInput.pan_model || 1,
-        zhen: qimenInput.zhen || 2
-      }
-      
-      // Generate the report
-      await generateReport(input)
-      
-      // Get the generated report from store
-      const { currentReport } = useQimenStore.getState()
-      
-      if (currentReport) {
-        // Create new conversation with the report
-        const conversationId = createConversation(undefined, currentReport)
-        
-        // Switch to the new conversation
-        setCurrentConversation(conversationId)
-        
-        // Switch to chat mode
-        setMode('chat')
-        
-        // Notify parent component
-        onQimenGenerated?.(currentReport.id)
-        
-        // Reset qimen input
-        setQimenInput({
-          datetime: new Date(),
-          questionType: 'general',
-          gender: 'male',
-          ju_model: 0,
-          pan_model: 1,
-          zhen: 2
-        })
-      }
-    } catch (error) {
-      console.error('Failed to generate Qimen report:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-  
   const handleChatSubmit = async () => {
     if (!chatMessage.trim()) return
     
-    const currentConv = getCurrentConversation()
-    if (!currentConv) {
-      // Create a new conversation if none exists
-      createConversation()
-    }
-    
-    const userMessage = {
-      id: nanoid(),
-      role: 'user' as MessageRole,
-      content: chatMessage.trim(),
-      timestamp: Date.now()
-    }
-    
-    // Add user message to conversation
-    const conversationId = getCurrentConversation()?.id || currentConversationId
-    if (conversationId) {
-      addMessageToConversation(conversationId, userMessage)
-    }
-    
-    // Also add to global chat store for compatibility
-    addMessage(userMessage.role, userMessage.content)
-    
-    // Clear input
-    const messageToSend = chatMessage
+    const messageToSend = chatMessage.trim()
     setChatMessage('')
-    
-    // Notify parent
-    onMessageSent?.(userMessage.id)
     
     setIsLoading(true)
     
     try {
-      // Get conversation history
-      const conversation = getCurrentConversation()
-      const history = conversation?.messages || []
-      
-      // Send to AI service
-      const aiResponse = await AIService.sendMessage(
-        messageToSend,
-        history,
-        conversation?.qimenReport
-      )
-      
-      // Add AI response to conversation
-      if (conversationId) {
-        addMessageToConversation(conversationId, aiResponse)
+      let currentConv = getCurrentConversation()
+      let conversationId = currentConv?.id || currentConversationId
+
+      // 1. 如果没有当前对话或当前对话没有排盘，先自动排盘
+      if (!currentConv || !currentConv.qimenReport) {
+        const now = new Date()
+        const input: QimenInput = {
+            datetime: now,
+            questionType: 'general', // 默认为综合运势
+            gender: 'male', // 默认性别，后续可优化为用户设置
+            year: now.getFullYear(),
+            month: now.getMonth() + 1,
+            day: now.getDate(),
+            hours: now.getHours(),
+            minute: now.getMinutes(),
+            ju_model: 0,
+            pan_model: 1,
+            zhen: 2
+        }
+
+        await generateReport(input)
+        const { currentReport } = useQimenStore.getState()
+
+        if (currentReport) {
+            // 创建带排盘的新对话
+            conversationId = createConversation(undefined, currentReport)
+            setCurrentConversation(conversationId)
+            
+            // 添加排盘结果消息
+            const reportMsg = {
+                id: nanoid(),
+                role: 'assistant' as MessageRole,
+                content: '',
+                timestamp: Date.now(),
+                type: 'report' as const,
+                reportId: currentReport.id
+            }
+            
+            if (conversationId) {
+                addMessageToConversation(conversationId, reportMsg)
+            }
+            addMessage(reportMsg.role, reportMsg.content, 'report', reportMsg.reportId)
+            
+            onQimenGenerated?.(currentReport.id)
+            
+            // 更新 currentConv 引用
+            currentConv = useConversationStore.getState().getCurrentConversation()
+        }
+      }
+    
+      // 2. 添加用户消息
+      const userMessage = {
+        id: nanoid(),
+        role: 'user' as MessageRole,
+        content: messageToSend,
+        timestamp: Date.now()
       }
       
-      // Also add to global chat store
-      addMessage(aiResponse.role, aiResponse.content)
+      // 确保 conversationId 是最新的
+      conversationId = useConversationStore.getState().currentConversationId
+      
+      if (conversationId) {
+        addMessageToConversation(conversationId, userMessage)
+      }
+      
+      addMessage(userMessage.role, userMessage.content)
+      onMessageSent?.(userMessage.id)
+      
+      // 3. 调用 AI (流式)
+      const conversation = useConversationStore.getState().getCurrentConversation()
+      const history = conversation?.messages || []
+      
+      // 创建一个空的 AI 消息占位符
+      const aiMessageId = nanoid()
+      const aiMessage = {
+        id: aiMessageId,
+        role: 'assistant' as MessageRole,
+        content: '', // 初始内容为空
+        timestamp: Date.now()
+      }
+
+      // 添加空消息到 UI
+      if (conversationId) {
+        addMessageToConversation(conversationId, aiMessage)
+      }
+      addMessage(aiMessage.role, aiMessage.content)
+
+      // 开始流式请求
+      await AIService.sendMessageStream(
+        messageToSend,
+        history,
+        conversation?.qimenReport,
+        profile.birthChart,
+        (chunk: string) => {
+            // 实时更新消息内容
+            if (conversationId) {
+                updateMessageInConversation(conversationId, aiMessageId, chunk)
+            }
+            updateMessage(aiMessageId, chunk)
+        },
+        (fullContent: string) => {
+            // 完成时 (可以在这里做一些清理工作，如果需要)
+        },
+        (error: Error) => {
+            // 错误处理
+            console.error('AI Stream Error:', error)
+            const errorMsg = '\n\n[出错了，请稍后再试]'
+            if (conversationId) {
+                updateMessageInConversation(conversationId, aiMessageId, errorMsg)
+            }
+            updateMessage(aiMessageId, errorMsg)
+        }
+      )
       
     } catch (error) {
-      console.error('Failed to get AI response:', error)
+      console.error('Failed to process message:', error)
       
-      // Add error message
       const errorMessage = {
         id: nanoid(),
         role: 'assistant' as MessageRole,
@@ -192,6 +180,7 @@ export function ChatInput({ onQimenGenerated, onMessageSent, className }: ChatIn
         timestamp: Date.now()
       }
       
+      const conversationId = useConversationStore.getState().currentConversationId
       if (conversationId) {
         addMessageToConversation(conversationId, errorMessage)
       }
@@ -204,205 +193,78 @@ export function ChatInput({ onQimenGenerated, onMessageSent, className }: ChatIn
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      if (mode === 'qimen') {
-        handleQimenSubmit()
-      } else {
-        handleChatSubmit()
-      }
+      handleChatSubmit()
     }
   }
   
-  const questionTypes: { value: QuestionType; label: string }[] = [
-    { value: 'general', label: '综合运势' },
-    { value: 'career', label: '事业财运' },
-    { value: 'relationship', label: '感情婚姻' },
-    { value: 'health', label: '健康状况' },
-    { value: 'study', label: '学业考试' }
-  ]
-  
   return (
-    <Card className={`p-4 ${className}`}>
-      {/* Mode Toggle */}
-      <div className="flex gap-2 mb-4">
-        <Button
-          variant={mode === 'qimen' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setMode('qimen')}
-          disabled={isLoading}
-          className="flex items-center gap-2"
-        >
-          <Sparkles className="w-4 h-4" />
-          奇门排盘
-        </Button>
-        <Button
-          variant={mode === 'chat' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setMode('chat')}
-          disabled={isLoading || !hasQimenReport}
-          className="flex items-center gap-2"
-        >
-          <MessageSquare className="w-4 h-4" />
-          AI对话
-        </Button>
-      </div>
-      
-      {mode === 'qimen' ? (
-        /* Qimen Input Form */
-        <div className="space-y-4">
-          {/* Date and Time */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium mb-2 block">日期</label>
-              <Input
-                type="date"
-                value={qimenInput.datetime?.toISOString().split('T')[0] || ''}
-                onChange={(e) => {
-                  const date = new Date(e.target.value)
-                  if (qimenInput.datetime) {
-                    date.setHours(qimenInput.datetime.getHours())
-                    date.setMinutes(qimenInput.datetime.getMinutes())
-                  }
-                  setQimenInput(prev => ({ ...prev, datetime: date }))
-                }}
-                className="w-full"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-2 block">时间</label>
-              <Input
-                type="time"
-                value={qimenInput.datetime ? 
-                  `${qimenInput.datetime.getHours().toString().padStart(2, '0')}:${qimenInput.datetime.getMinutes().toString().padStart(2, '0')}` 
-                  : ''
-                }
-                onChange={(e) => {
-                  const [hours, minutes] = e.target.value.split(':').map(Number)
-                  const date = new Date(qimenInput.datetime || new Date())
-                  date.setHours(hours)
-                  date.setMinutes(minutes)
-                  setQimenInput(prev => ({ ...prev, datetime: date }))
-                }}
-                className="w-full"
-              />
-            </div>
-          </div>
-          
-          {/* Question Type */}
-          <div>
-            <label className="text-sm font-medium mb-2 block">问题类型</label>
-            <select
-              value={qimenInput.questionType || 'general'}
-              onChange={(e) => setQimenInput(prev => ({ 
-                ...prev, 
-                questionType: e.target.value as QuestionType 
-              }))}
-              className="w-full p-2 border border-input rounded-md bg-background"
-            >
-              {questionTypes.map(type => (
-                <option key={type.value} value={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          
-          {/* Gender */}
-          <div>
-            <label className="text-sm font-medium mb-2 block">性别</label>
-            <div className="flex gap-4">
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  value="male"
-                  checked={qimenInput.gender === 'male'}
-                  onChange={(e) => setQimenInput(prev => ({ 
-                    ...prev, 
-                    gender: e.target.value as 'male' | 'female' 
-                  }))}
-                />
-                男
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  value="female"
-                  checked={qimenInput.gender === 'female'}
-                  onChange={(e) => setQimenInput(prev => ({ 
-                    ...prev, 
-                    gender: e.target.value as 'male' | 'female' 
-                  }))}
-                />
-                女
-              </label>
-            </div>
-          </div>
-          
-          {/* Submit Button */}
-          <Button
-            onClick={handleQimenSubmit}
-            disabled={isLoading || isGenerating || !qimenInput.datetime || !qimenInput.questionType}
-            className="w-full"
-          >
-            {isLoading || isGenerating ? (
-              <>
-                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
-                生成排盘中...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4 mr-2" />
-                生成奇门遁甲排盘
-              </>
-            )}
-          </Button>
-          
-          {qimenError && (
-            <div className="text-sm text-destructive bg-destructive/10 p-2 rounded">
-              {qimenError}
-            </div>
-          )}
-        </div>
-      ) : (
-        /* Chat Input */
-        <div className="space-y-4">
-          {!hasQimenReport && (
-            <div className="text-sm text-muted-foreground bg-muted/50 p-3 rounded">
-              请先生成奇门遁甲排盘，然后就可以开始AI对话了。
-            </div>
-          )}
-          
-          <div className="flex gap-2">
+    <div className={`relative group ${className}`}>
+      <div 
+        className={`
+          relative flex flex-col transition-all duration-300
+          ${isFocused ? 'scale-[1.01]' : 'scale-100'}
+        `}
+      >
+        <div className="relative">
             <Textarea
               ref={textareaRef}
               value={chatMessage}
               onChange={(e) => setChatMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder={hasQimenReport ? "请输入您的问题..." : "请先生成排盘"}
-              disabled={isLoading || !hasQimenReport}
-              className="min-h-[60px] max-h-[200px] resize-none"
-              rows={1}
+              onKeyDown={handleKeyPress}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
+              placeholder="问卦..."
+              className={`
+                min-h-[60px] max-h-[200px] pr-12 resize-none 
+                bg-transparent border-none
+                rounded-none shadow-none focus-visible:ring-0 px-0 py-4
+                text-base font-serif tracking-wide text-foreground/90 placeholder:text-muted-foreground/40
+                transition-all duration-300
+              `}
+              disabled={isLoading}
             />
-            <Button
-              onClick={handleChatSubmit}
-              disabled={isLoading || !chatMessage.trim() || !hasQimenReport}
-              size="icon"
-              className="self-end"
-            >
-              {isLoading ? (
-                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <Send className="w-4 h-4" />
-              )}
-            </Button>
-          </div>
-          
-          {hasQimenReport && (
-            <div className="text-xs text-muted-foreground">
-              基于 {currentConversation?.qimenReport?.result.basicInfo.gongli} 的排盘结果进行对话
+            
+            {/* 渐变底线 */}
+            <div className="absolute bottom-0 left-0 right-0 h-[1px] w-full">
+               <div 
+                 className={`
+                   absolute inset-0 bg-gradient-to-r from-transparent via-foreground/20 to-transparent
+                   transition-opacity duration-500
+                   ${isFocused ? 'opacity-100' : 'opacity-60'}
+                 `} 
+               />
+               <div 
+                 className={`
+                   absolute inset-0 bg-gradient-to-r from-transparent via-foreground/60 to-transparent
+                   transition-all duration-700 ease-in-out
+                   ${isFocused ? 'opacity-100 scale-x-100' : 'opacity-0 scale-x-50'}
+                 `} 
+               />
             </div>
-          )}
+            
+            <div className="absolute right-0 bottom-4 flex items-center gap-2">
+                <Button 
+                  size="icon"
+                  variant="ghost"
+                  className={`
+                    h-8 w-8 rounded-full transition-all duration-300
+                    ${chatMessage.trim() ? 'opacity-100 rotate-0 bg-foreground text-background hover:bg-foreground/90' : 'opacity-0 rotate-90 pointer-events-none'}
+                  `}
+                  onClick={handleChatSubmit}
+                  disabled={!chatMessage.trim() || isLoading}
+                >
+                  <Send className="w-4 h-4 ml-0.5" />
+                </Button>
+            </div>
         </div>
-      )}
-    </Card>
+        
+        <div className="flex items-center justify-between pt-2 px-1 opacity-0 group-hover:opacity-100 transition-opacity duration-500 delay-100">
+           <span className="text-[10px] text-muted-foreground/30 font-serif">
+             {isLoading ? '正在推演...' : '按 Enter 发送'}
+           </span>
+           {isLoading && <Sparkles className="w-3 h-3 text-muted-foreground/30 animate-pulse" />}
+        </div>
+      </div>
+    </div>
   )
 }

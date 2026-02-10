@@ -41,23 +41,23 @@ export function QimenReport({ report, className }: QimenReportProps) {
   }
   
   const renderPanInfo = (title: string, data: string[], icon: React.ReactNode) => (
-    <Card className="h-full">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-lg flex items-center gap-2">
+    <Card className="h-full shadow-none border-border/60">
+      <CardHeader className="pb-3 border-b border-border/40 mb-3">
+        <CardTitle className="text-base font-medium flex items-center gap-2 text-foreground/80">
           {icon}
           {title}
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-px bg-border/40 border border-border/40">
           {data.map((item, index) => {
             const gongNames = ['坎', '艮', '震', '巽', '离', '坤', '兑', '乾', '中']
             return (
-              <div key={index} className="text-center p-2 bg-muted/50 rounded">
-                <div className="text-xs text-muted-foreground mb-1">
+              <div key={index} className="text-center p-3 bg-card flex flex-col items-center justify-center aspect-square transition-colors hover:bg-secondary/30">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1 font-medium">
                   {gongNames[index] || `${index + 1}`}
                 </div>
-                <div className="text-sm font-medium">{item}</div>
+                <div className="text-sm font-light text-foreground">{item}</div>
               </div>
             )
           })}
@@ -69,30 +69,38 @@ export function QimenReport({ report, className }: QimenReportProps) {
   return (
     <div className={`space-y-6 ${className}`}>
       {/* Header Information */}
-      <Card>
-        <CardHeader>
+      <Card className="shadow-none border-border/60">
+        <CardHeader className="pb-4 border-b border-border/40">
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Star className="w-5 h-5" />
+            <CardTitle className="flex items-center gap-2 text-lg font-light tracking-wide">
+              <Star className="w-4 h-4 text-foreground/70" />
               奇门遁甲排盘
             </CardTitle>
-            <Badge variant="secondary">
+            <Badge variant="outline" className="font-normal rounded-full px-3 py-0.5 border-foreground/20 text-foreground/80">
               {getQuestionTypeLabel(input.questionType)}
             </Badge>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6 pt-6">
           {/* Basic Info */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">排盘时间：</span>
-              <span className="font-medium">{formatDateTime(input.datetime)}</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
+                <Calendar className="w-4 h-4 text-foreground/60" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">排盘时间</span>
+                <span className="font-medium text-sm">{formatDateTime(input.datetime)}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Target className="w-4 h-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">性别：</span>
-              <span className="font-medium">{input.gender === 'male' ? '男' : '女'}</span>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
+                <Target className="w-4 h-4 text-foreground/60" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">性别</span>
+                <span className="font-medium text-sm">{input.gender === 'male' ? '男' : '女'}</span>
+              </div>
             </div>
           </div>
           

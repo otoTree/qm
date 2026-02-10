@@ -6,11 +6,13 @@ export interface ChatMessage {
   role: MessageRole;
   content: string;
   timestamp: number;  // 时间戳
+  type?: 'text' | 'report'; // 消息类型
+  reportId?: string;  // 关联的排盘报告ID
 }
 
 export interface ChatState {
   messages: ChatMessage[];
-  addMessage: (role: MessageRole, content: string) => void;
+  addMessage: (role: MessageRole, content: string, type?: 'text' | 'report', reportId?: string) => void;
   updateMessage: (id: string, content: string) => void;
   clearMessages: () => void;
 }

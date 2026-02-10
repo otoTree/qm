@@ -41,6 +41,7 @@ export class AIService {
    - 客观分析: 基于盘局客观分析，不夸大预测结果  
    - 保护隐私: 严格保密用户个人信息  
    - 科学态度: 结合现代认知解释传统理论  
+   - **身份认知**: 你的身份是"奇门遁甲 AI 智能解读助手"，你不是 DeepSeek，也不是 OpenAI 的模型。当用户询问你的身份时，请明确回答你是专门为奇门遁甲解读而设计的 AI 助手。
 
 2. 行为准则：  
    - 详细询问: 充分了解用户问题和背景  
@@ -63,7 +64,7 @@ export class AIService {
 - 预期结果: 用户获得有价值的预测分析和实用建议  
 
 ## Initialization  
-67| 作为奇门遁甲排盘分析师，你必须遵守上述Rules，按照Workflows执行任务。`
+作为奇门遁甲排盘分析师，你必须遵守上述Rules，按照Workflows执行任务。`
 
   /**
    * 发送消息到AI并获取回复
@@ -71,11 +72,12 @@ export class AIService {
   static async sendMessage(
     message: string,
     conversationHistory: ChatMessage[] = [],
-    qimenReport?: QimenReport
+    qimenReport?: QimenReport,
+    birthChart?: QimenReport | null
   ): Promise<ChatMessage> {
     try {
       // 构建消息数组
-      const messages = this.buildMessages(conversationHistory, message, qimenReport)
+      const messages = this.buildMessages(conversationHistory, message, qimenReport, birthChart)
       
       // 调用SiliconFlow API (via backend)
       const response = await this.callSiliconFlowAPI(messages)
@@ -103,226 +105,175 @@ export class AIService {
   }
 
   /**
-   * 调用SiliconFlow API (via Backend)
+   * 发送消息到AI并以流式方式获取回复
    */
-  private static async callSiliconFlowAPI(messages: any[]): Promise<string> {
+  static async sendMessageStream(
+    message: string,
+    conversationHistory: ChatMessage[] = [],
+    qimenReport: QimenReport | undefined,
+    birthChart: QimenReport | null | undefined,
+    onChunk: (chunk: string) => void,
+    onComplete: (fullContent: string) => void,
+    onError: (error: Error) => void
+  ): Promise<void> {
+    try {
+      const messages = this.buildMessages(conversationHistory, message, qimenReport, birthChart)
+      
+      const response = await fetch(this.API_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          messages,
+          model: this.DEFAULT_MODEL,
+          stream: true
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`)
+      }
+
+      if (!response.body) {
+        throw new Error('Response body is empty')
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let fullContent = ''
+      
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        
+        const chunk = decoder.decode(value)
+        const lines = chunk.split('\n')
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') continue
+            
+            try {
+              const parsed = JSON.parse(data)
+              const content = parsed.choices[0]?.delta?.content || ''
+              if (content) {
+                fullContent += content
+                onChunk(content)
+              }
+            } catch (e) {
+              console.error('Error parsing SSE data:', e)
+            }
+          }
+        }
+      }
+      
+      onComplete(fullContent)
+      
+    } catch (error) {
+      console.error('Stream error:', error)
+      onError(error instanceof Error ? error : new Error('Unknown streaming error'))
+    }
+  }
+
+  /**
+   * 构建消息数组
+   */
+  private static buildMessages(
+    history: ChatMessage[], 
+    newMessage: string,
+    qimenReport?: QimenReport,
+    birthChart?: QimenReport | null
+  ) {
+    // 转换历史消息格式
+    // 过滤掉 'report' 类型的消息，只保留 'text' 类型的对话
+    const apiMessages = history
+      .filter(msg => msg.type !== 'report') // 过滤掉排盘报告消息
+      .map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }))
+    
+    // 如果有奇门排盘结果，将其作为上下文添加到系统提示中
+    let systemPrompt = this.SYSTEM_PROMPT
+    
+    if (birthChart) {
+      const { basicInfo, tianpan, dipan, renpan, shenpan } = birthChart.result
+      
+      const birthChartContext = `
+## 用户命盘信息（终身局）
+- 姓名: ${birthChart.input.gender === 'male' ? '男命' : '女命'}
+- 出生时间: ${birthChart.result.basicInfo.gongli}
+- 四柱: ${basicInfo.sizhu}
+- 局数: ${basicInfo.dunju}
+- 值符/值使: ${basicInfo.zhifu} / ${basicInfo.zhishi}
+
+### 命盘详情
+- 天盘: ${tianpan.join(', ')}
+- 地盘: ${dipan.join(', ')}
+- 人盘: ${renpan.join(', ')}
+- 神盘: ${shenpan.join(', ')}
+
+请在分析时参考用户的命盘信息，特别是当用户询问人生运势、性格特点、长期规划等问题时。
+`
+      systemPrompt += birthChartContext
+    }
+
+    if (qimenReport) {
+      const { basicInfo, analysis, suggestions, tianpan, dipan, renpan, shenpan } = qimenReport.result
+      
+      const qimenContext = `
+## 当前排盘信息
+- 问题类型: ${qimenReport.input.questionType}
+- 排盘时间: ${qimenReport.result.basicInfo.gongli}
+- 四柱: ${basicInfo.sizhu}
+- 值符/值使: ${basicInfo.zhifu} / ${basicInfo.zhishi}
+- 局数: ${basicInfo.dunju}
+
+### 盘面详情
+- 天盘(九星): ${tianpan.join(', ')}
+- 地盘(三奇六仪): ${dipan.join(', ')}
+- 人盘(八门): ${renpan.join(', ')}
+- 神盘(八神): ${shenpan.join(', ')}
+
+### 基础分析
+${analysis}
+
+### 建议
+${suggestions.join('\n')}
+`
+      systemPrompt += qimenContext
+    }
+    
+    return [
+      { role: 'system', content: systemPrompt },
+      ...apiMessages,
+      { role: 'user', content: newMessage }
+    ]
+  }
+
+  /**
+   * 调用SiliconFlow API
+   */
+  private static async callSiliconFlowAPI(messages: any[]) {
     const response = await fetch(this.API_ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: this.DEFAULT_MODEL,
-        messages: messages
+        messages,
+        model: this.DEFAULT_MODEL
       })
     })
 
     if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`AI Service API error: ${response.status} - ${errorText}`)
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.error || `API error: ${response.status}`)
     }
 
     const data = await response.json()
-    // The backend returns the standard OpenAI format or our proxy format.
-    // Our backend returns `data` directly from SiliconFlow.
-    return data.choices[0]?.message?.content || '抱歉，我无法生成回复。'
-  }
-
-  /**
-   * 构建消息数组（OpenAI格式）
-   */
-  private static buildMessages(
-    conversationHistory: ChatMessage[],
-    currentMessage: string,
-    qimenReport?: QimenReport
-  ): any[] {
-    const messages = []
-    
-    // 添加系统消息
-    let systemContent = this.SYSTEM_PROMPT
-    
-    // 添加奇门遁甲报告信息到系统消息
-    if (qimenReport) {
-      systemContent += '\n\n' + this.formatQimenReport(qimenReport)
-    }
-    
-    messages.push({
-      role: 'system',
-      content: systemContent
-    })
-    
-    // 添加对话历史（最近10条）
-    const recentHistory = conversationHistory.slice(-10)
-    recentHistory.forEach(msg => {
-      if (msg.role !== 'system') {
-        messages.push({
-          role: msg.role,
-          content: msg.content
-        })
-      }
-    })
-    
-    // 添加当前用户消息
-    messages.push({
-      role: 'user',
-      content: currentMessage
-    })
-    
-    return messages
-  }
-
-  /**
-   * 获取系统提示
-   */
-  static getSystemPrompt(): string {
-    return this.SYSTEM_PROMPT
-  }
-
-  /**
-   * 验证API配置
-   */
-  static validateConfig(): boolean {
-    return true
-  }
-
-  /**
-   * 获取API状态信息
-   */
-  static getAPIStatus(): { configured: boolean; model: string; baseUrl: string } {
-    return {
-      configured: true,
-      model: this.DEFAULT_MODEL,
-      baseUrl: this.API_ENDPOINT
-    }
-  }
-
-  /**
-   * 格式化奇门遁甲排盘报告
-   * 按照标准格式组织排盘信息
-   */
-  private static formatQimenReport(qimenReport: QimenReport): string {
-    // 从API响应数据中提取信息，需要先检查数据结构
-    const data = (qimenReport as any).apiData || qimenReport.result
-    
-    let text = `
-════════ 基础信息 ════════
-`
-    text += `公历时间：${qimenReport.result.basicInfo.gongli}\n`
-    
-    // 如果有农历信息
-    if (data.nongli) {
-      text += `农历时间：${data.nongli}\n`
-    }
-    
-    text += `\n────── 四柱信息 ──────\n`
-    
-    // 如果有详细的四柱信息
-    if (data.sizhu_info) {
-      text += `年柱：${data.sizhu_info.year_gan}${data.sizhu_info.year_zhi}\n`
-      text += `月柱：${data.sizhu_info.month_gan}${data.sizhu_info.month_zhi}\n`
-      text += `日柱：${data.sizhu_info.day_gan}${data.sizhu_info.day_zhi}\n`
-      text += `时柱：${data.sizhu_info.hour_gan}${data.sizhu_info.hour_zhi}\n`
-    } else {
-      text += `四柱：${qimenReport.result.basicInfo.sizhu}\n`
-    }
-    
-    // 旬空信息
-    if (data.xunkong_info) {
-      text += `\n────── 旬空信息 ──────\n`
-      text += `年柱旬空：${data.xunkong_info.year_xunkong}\n`
-      text += `月柱旬空：${data.xunkong_info.month_xunkong}\n`
-      text += `日柱旬空：${data.xunkong_info.day_xunkong}\n`
-      text += `时柱旬空：${data.xunkong_info.hour_xunkong}\n`
-    }
-    
-    text += `\n────── 奇门遁甲信息 ──────\n`
-    
-    // 值符值使信息
-    if (data.zhifu_info) {
-      text += `值符：${data.zhifu_info.zhifu_name}星（落${data.zhifu_info.zhifu_luogong}宫）\n`
-      text += `值使：${data.zhifu_info.zhishi_name}（落${data.zhifu_info.zhishi_luogong}宫）\n`
-    } else {
-      text += `值符：${qimenReport.result.basicInfo.zhifu}\n`
-      text += `值使：${qimenReport.result.basicInfo.zhishi}\n`
-    }
-    
-    // 其他基础信息
-    if (data.fushou) text += `符首：${data.fushou}\n`
-    if (data.xunshou) text += `旬首：${data.xunshou}\n`
-    
-    text += `遁局：${qimenReport.result.basicInfo.dunju}`
-    if (data.dingju) text += `（${data.dingju}）`
-    text += `\n`
-    
-    if (data.panlei) text += `盘类：${data.panlei}\n`
-    
-    // 节气信息
-    if (data.jieqi_pre || data.jieqi_next) {
-      text += `\n────── 节气信息 ──────\n`
-      if (data.jieqi_pre) text += `上一节气：${data.jieqi_pre}\n`
-      if (data.jieqi_next) text += `下一节气：${data.jieqi_next}\n`
-    }
-    
-    // 宫盘分析
-    if (data.gong_pan && Array.isArray(data.gong_pan)) {
-      const gongOrder = ["坎", "艮", "震", "巽", "离", "坤", "兑", "乾", "中"]
-      
-      text += `\n════════ 奇门遁甲宫盘分析 ════════`
-      
-      data.gong_pan.forEach((pan: any, index: number) => {
-        const gongName = gongOrder[index] || `第${index + 1}宫`
-        text += `\n────── ${gongName}宫 ──────`
-        
-        // 神盘
-        const bashen = pan.shenpan?.bashen || '无'
-        text += `\n【神盘】${bashen}`
-        
-        // 天盘
-        const jiuxing = pan.tianpan?.jiuxing || ''
-        const tianpanSanqi = pan.tianpan?.sanqiliuyi || ''
-        text += `\n【天盘】九星：${jiuxing} | 三奇六仪：${tianpanSanqi}`
-        
-        // 地盘
-        const dipanSanqi = pan.dipan?.sanqiliuyi || ''
-        text += `\n【地盘】三奇六仪：${dipanSanqi}`
-        
-        // 人盘
-        const bamen = pan.renpan?.bamen || ''
-        text += `\n【人盘】八门：${bamen}`
-        
-        // 描述信息
-        if (pan.description) {
-          if (pan.description.gong_ju) {
-            text += `\n◎ 宫局状态：${pan.description.gong_ju}`
-          }
-          if (pan.description.luo_gong_desc) {
-            text += `\n◎ 详细解读：${pan.description.luo_gong_desc}`
-          }
-        }
-      })
-    }
-    
-    // 添加问题类型
-    text += `\n\n════════ 问卜信息 ════════\n`
-    text += `问题类型：${qimenReport.input.questionType}\n`
-    if (qimenReport.input.question) {
-      text += `具体问题：${qimenReport.input.question}\n`
-    }
-    
-    // 添加详细分析
-    if (qimenReport.result.analysis) {
-      text += `\n════════ 排盘分析 ════════\n`
-      text += qimenReport.result.analysis + '\n'
-    }
-    
-    // 添加建议
-    if (qimenReport.result.suggestions && qimenReport.result.suggestions.length > 0) {
-      text += `\n════════ 初步建议 ════════\n`
-      qimenReport.result.suggestions.forEach((suggestion, index) => {
-        text += `${index + 1}. ${suggestion}\n`
-      })
-    }
-    
-    return text
+    return data.choices[0].message.content
   }
 }
