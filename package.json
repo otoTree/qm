@@ -22,17 +22,17 @@
     "dexie": "^4.0.11",
     "lucide-react": "^0.513.0",
     "nanoid": "^5.1.5",
-    "next": "15.3.3",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest",
     "tailwind-merge": "^3.3.0",
     "zustand": "^5.0.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20.19.0",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.4",
     "typescript": "^5"

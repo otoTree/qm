@@ -6,8 +6,7 @@ import { nanoid } from 'nanoid'
  * 基于原Python代码转换而来
  */
 export class QimenAPI {
-  private static readonly API_URL = '/api/qimen/qimendunjia'
-  private static readonly API_KEY = process.env.NEXT_PUBLIC_QIMEN_API_KEY || 'hMeVwbq9uYR2G2kgM0yZgT0A5'
+  private static readonly API_URL = '/api/qimen'
 
   /**
    * 调用奇门遁甲排盘API
@@ -20,7 +19,7 @@ export class QimenAPI {
 
     // 构建请求数据
     const formData = new URLSearchParams({
-      api_key: this.API_KEY,
+      // api_key 由后端处理
       name: '用户', // 默认姓名
       sex: input.gender === 'male' ? '0' : '1',
       type: '1', // 默认公历
@@ -198,43 +197,52 @@ export class QimenAPI {
       text += `符首：${data.fushou || '获取失败'}\n`
       text += `旬首：${data.xunshou || '获取失败'}\n`
       text += `遁局：${data.dunju || '获取失败'}（${data.dingju || '获取失败'}）\n`
-      text += `盘类：${data.panlei || '获取失败'}\n\n`
       
-      text += `────── 节气信息 ──────\n`
-      text += `上一节气：${data.jieqi_pre || '获取失败'}\n`
-      text += `下一节气：${data.jieqi_next || '获取失败'}\n\n`
+      if (data.panlei) {
+        text += `盘类：${data.panlei}\n`
+      }
       
-      text += `════════ 奇门遁甲宫盘分析 ════════\n`
+      if (data.jieqi_pre || data.jieqi_next) {
+        text += `\n────── 节气信息 ──────\n`
+        if (data.jieqi_pre) text += `上一节气：${data.jieqi_pre}\n`
+        if (data.jieqi_next) text += `下一节气：${data.jieqi_next}\n`
+      }
       
       if (data.gong_pan && Array.isArray(data.gong_pan)) {
-        data.gong_pan.forEach((pan: any, i: number) => {
-          try {
-            const gongName = gongOrder[i] || `第${i+1}宫`
-            text += `────── ${gongName}宫 ──────\n`
-            text += `【神盘】${pan.shenpan?.bashen || '无'}\n`
-            text += `【天盘】九星：${pan.tianpan?.jiuxing || '获取失败'} | 三奇六仪：${pan.tianpan?.sanqiliuyi || '获取失败'}\n`
-            text += `【地盘】三奇六仪：${pan.dipan?.sanqiliuyi || '获取失败'}\n`
-            text += `【人盘】八门：${pan.renpan?.bamen || '获取失败'}\n`
-            if (pan.description) {
-              text += `◎ 宫局状态：${pan.description.gong_ju || '获取失败'}\n`
-              text += `◎ 详细解读：${pan.description.luo_gong_desc || '获取失败'}\n\n`
-            } else {
-              text += `◎ 详细解读：数据获取失败\n\n`
+        text += `\n════════ 奇门遁甲宫盘分析 ════════`
+        
+        data.gong_pan.forEach((pan: any, index: number) => {
+          const gongName = gongOrder[index] || `第${index + 1}宫`
+          text += `\n────── ${gongName}宫 ──────`
+          
+          const bashen = pan.shenpan?.bashen || '无'
+          text += `\n【神盘】${bashen}`
+          
+          const jiuxing = pan.tianpan?.jiuxing || ''
+          const tianpanSanqi = pan.tianpan?.sanqiliuyi || ''
+          text += `\n【天盘】九星：${jiuxing} | 三奇六仪：${tianpanSanqi}`
+          
+          const dipanSanqi = pan.dipan?.sanqiliuyi || ''
+          text += `\n【地盘】三奇六仪：${dipanSanqi}`
+          
+          const bamen = pan.renpan?.bamen || ''
+          text += `\n【人盘】八门：${bamen}`
+          
+          if (pan.description) {
+            if (pan.description.gong_ju) {
+              text += `\n◎ 宫局状态：${pan.description.gong_ju}`
             }
-          } catch (error) {
-            console.error(`处理第${i}宫详细信息时出错:`, error)
-            text += `────── 第${i+1}宫 ──────\n`
-            text += `数据处理出错\n\n`
+            if (pan.description.luo_gong_desc) {
+              text += `\n◎ 详细解读：${pan.description.luo_gong_desc}`
+            }
           }
         })
-      } else {
-        text += `九宫数据获取失败\n`
       }
       
       return text
     } catch (error) {
       console.error('生成详细信息时出错:', error)
-      return `详细信息生成失败：${error instanceof Error ? error.message : '未知错误'}`
+      return '生成详细信息失败'
     }
   }
 
@@ -242,84 +250,22 @@ export class QimenAPI {
    * 生成分析结果
    */
   private static generateAnalysis(data: any): string {
-    try {
-      const zhifuGong = data.zhifu_info?.zhifu_luogong || '未知'
-      const zhishiGong = data.zhifu_info?.zhishi_luogong || '未知'
-      const dunju = data.dunju || '未知局'
-      
-      let analysis = `根据当前时局的奇门遁甲排盘分析：\n\n`
-      
-      if (data.zhifu_info) {
-        analysis += `本局为${dunju}，值符${data.zhifu_info.zhifu_name || '未知'}星落${zhifuGong}宫，值使${data.zhifu_info.zhishi_name || '未知'}落${zhishiGong}宫。\n\n`
-      } else {
-        analysis += `本局为${dunju}，值符值使信息获取失败。\n\n`
-      }
-      
-      // 分析主要宫位
-      if (data.gong_pan && Array.isArray(data.gong_pan)) {
-        const importantGongs = ['乾', '坤', '离', '坎']
-        importantGongs.forEach(gongName => {
-          const gongIndex = ['坎', '艮', '震', '巽', '离', '坤', '兑', '乾', '中'].indexOf(gongName)
-          if (gongIndex !== -1 && data.gong_pan[gongIndex]) {
-            const pan = data.gong_pan[gongIndex]
-            analysis += `${gongName}宫：${pan.tianpan?.jiuxing || '未知'}星配${pan.renpan?.bamen || '未知'}，${pan.description?.gong_ju || '未知状态'}。${pan.description?.luo_gong_desc || '解读获取失败'}\n\n`
-          }
-        })
-      } else {
-        analysis += `九宫数据获取失败，无法进行详细分析。\n\n`
-      }
-      
-      return analysis
-    } catch (error) {
-      console.error('生成分析时出错:', error)
-      return `分析生成失败：${error instanceof Error ? error.message : '未知错误'}`
-    }
+    // 这里可以根据需要生成更详细的分析
+    // 目前使用详细信息作为基础分析
+    return "基于奇门遁甲排盘的详细分析请查看【奇门遁甲报告】中的具体内容。AI助手将结合这些信息为您提供更深入的解读。"
   }
 
   /**
    * 生成建议
    */
   private static generateSuggestions(data: any): string[] {
-    const suggestions: string[] = []
-    
-    try {
-      // 基于值符值使给出建议
-      if (data.zhifu_info) {
-        const zhifuGong = data.zhifu_info.zhifu_luogong || '未知'
-        const zhishiGong = data.zhifu_info.zhishi_luogong || '未知'
-        
-        suggestions.push(`当前值符落${zhifuGong}宫，建议重点关注此方位的事务发展`)
-        suggestions.push(`值使落${zhishiGong}宫，在此方位行事较为有利`)
-      } else {
-        suggestions.push('值符值使信息获取失败，建议谨慎行事')
-      }
-      
-      // 基于遁局给出建议
-      if (data.dunju) {
-        if (data.dunju.includes('阳')) {
-          suggestions.push('当前为阳遁局，适合主动出击，积极行动')
-        } else if (data.dunju.includes('阴')) {
-          suggestions.push('当前为阴遁局，宜静观其变，谨慎行事')
-        } else {
-          suggestions.push('遁局信息不明确，建议保持平衡心态')
-        }
-      } else {
-        suggestions.push('遁局信息获取失败，建议保持谨慎')
-      }
-      
-      // 基于节气给出建议
-      suggestions.push(`当前节气环境下，建议顺应自然规律，把握时机`)
-      
-      // 如果没有任何建议，添加默认建议
-      if (suggestions.length === 0) {
-        suggestions.push('数据获取不完整，建议稍后重试或咨询专业人士')
-      }
-      
-      return suggestions
-    } catch (error) {
-      console.error('生成建议时出错:', error)
-      return ['建议生成失败，请稍后重试']
-    }
+    // 这里可以根据排盘结果生成动态建议
+    return [
+      '建议结合具体问题咨询AI助手',
+      '注意观察时局变化',
+      '吉凶仅供参考，决策需谨慎',
+      '心诚则灵，意动则行'
+    ]
   }
 
   /**

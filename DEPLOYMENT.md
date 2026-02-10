@@ -117,8 +117,9 @@ npm start
 # 应用配置
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 
-# API 配置
-NEXT_PUBLIC_API_URL=your-api-url
+# Backend API Keys (Server-side only)
+SILICONFLOW_API_KEY=your_siliconflow_api_key
+QIMEN_API_KEY=your_qimen_api_key
 
 # 其他必要的环境变量
 # 根据项目需求添加

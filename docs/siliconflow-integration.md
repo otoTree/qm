@@ -26,10 +26,12 @@
 
 ```env
 # SiliconFlow AI API配置
-NEXT_PUBLIC_SILICONFLOW_API_KEY=your_actual_api_key_here
+SILICONFLOW_API_KEY=your_actual_api_key_here
 ```
 
-**注意**：请将 `your_actual_api_key_here` 替换为您实际的 API 密钥。
+**注意**：
+1. 请将 `your_actual_api_key_here` 替换为您实际的 API 密钥。
+2. 为了安全起见，我们不再使用 `NEXT_PUBLIC_` 前缀，这意味着密钥仅在服务器端可用。
 
 ### 3. 重启开发服务器
 

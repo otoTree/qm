@@ -9,9 +9,8 @@ import { ChatMessage, MessageRole } from '@/types/chatmessage'
  */
 export class AIService {
   // SiliconFlow API配置
-  private static readonly SILICONFLOW_API_KEY = process.env.NEXT_PUBLIC_SILICONFLOW_API_KEY
-  private static readonly SILICONFLOW_BASE_URL = 'https://api.siliconflow.cn/v1'
-  private static readonly DEFAULT_MODEL = 'deepseek-ai/DeepSeek-V3' // 使用DeepSeek模型
+  private static readonly API_ENDPOINT = '/api/ai/chat'
+  private static readonly DEFAULT_MODEL = 'deepseek-chat' // 使用DeepSeek模型
   // 硬编码的系统提示
   private static readonly SYSTEM_PROMPT = `
 # Role: 奇门遁甲排盘分析师  
@@ -64,7 +63,7 @@ export class AIService {
 - 预期结果: 用户获得有价值的预测分析和实用建议  
 
 ## Initialization  
-作为奇门遁甲排盘分析师，你必须遵守上述Rules，按照Workflows执行任务。`
+67| 作为奇门遁甲排盘分析师，你必须遵守上述Rules，按照Workflows执行任务。`
 
   /**
    * 发送消息到AI并获取回复
@@ -75,22 +74,10 @@ export class AIService {
     qimenReport?: QimenReport
   ): Promise<ChatMessage> {
     try {
-      // 检查API配置
-      if (!this.SILICONFLOW_API_KEY) {
-        console.warn('SiliconFlow API key not configured, using mock response')
-        const response = "当前环境没有配置API密钥，无法调用AI服务"
-        return {
-          id: nanoid(),
-          role: 'assistant' as MessageRole,
-          content: response,
-          timestamp: Date.now()
-        }
-      }
-
       // 构建消息数组
       const messages = this.buildMessages(conversationHistory, message, qimenReport)
       
-      // 调用SiliconFlow API
+      // 调用SiliconFlow API (via backend)
       const response = await this.callSiliconFlowAPI(messages)
       
       return {
@@ -103,7 +90,8 @@ export class AIService {
       console.error('AI service error:', error)
       
       // 如果API调用失败，回退到模拟响应
-      const fallbackResponse = "请求失败请检查网络"
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      const fallbackResponse = `请求失败：${errorMessage}。请检查后端服务配置。`
       
       return {
         id: nanoid(),
@@ -115,31 +103,28 @@ export class AIService {
   }
 
   /**
-   * 调用SiliconFlow API
+   * 调用SiliconFlow API (via Backend)
    */
   private static async callSiliconFlowAPI(messages: any[]): Promise<string> {
-    const response = await fetch(`${this.SILICONFLOW_BASE_URL}/chat/completions`, {
+    const response = await fetch(this.API_ENDPOINT, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.SILICONFLOW_API_KEY}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         model: this.DEFAULT_MODEL,
-        messages: messages,
-        temperature: 0.7,
-        max_tokens: 8000,
-        top_p: 0.9,
-        stream: false
+        messages: messages
       })
     })
 
     if (!response.ok) {
       const errorText = await response.text()
-      throw new Error(`SiliconFlow API error: ${response.status} - ${errorText}`)
+      throw new Error(`AI Service API error: ${response.status} - ${errorText}`)
     }
 
     const data = await response.json()
+    // The backend returns the standard OpenAI format or our proxy format.
+    // Our backend returns `data` directly from SiliconFlow.
     return data.choices[0]?.message?.content || '抱歉，我无法生成回复。'
   }
 
@@ -186,8 +171,6 @@ export class AIService {
     return messages
   }
 
-
-
   /**
    * 获取系统提示
    */
@@ -199,7 +182,7 @@ export class AIService {
    * 验证API配置
    */
   static validateConfig(): boolean {
-    return !!this.SILICONFLOW_API_KEY
+    return true
   }
 
   /**
@@ -207,9 +190,9 @@ export class AIService {
    */
   static getAPIStatus(): { configured: boolean; model: string; baseUrl: string } {
     return {
-      configured: !!this.SILICONFLOW_API_KEY,
+      configured: true,
       model: this.DEFAULT_MODEL,
-      baseUrl: this.SILICONFLOW_BASE_URL
+      baseUrl: this.API_ENDPOINT
     }
   }
 
