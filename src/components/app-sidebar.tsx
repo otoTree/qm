@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { useConversationStore, formatConversationTime } from "@/store/useConversationStore"
 import { useUserStore } from "@/store/useUserStore"
+import { ChartManagerDialog } from "@/components/chart-manager-dialog"
 import { UserProfileDialog } from "@/components/user-profile-dialog"
 import { cn } from "@/lib/utils"
 
@@ -161,7 +162,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     deleteConversation,
   } = useConversationStore()
   
-  const { setOpen: setUserProfileOpen } = useUserStore()
+  const { setOpen: setUserProfileOpen, setChartManagerOpen } = useUserStore()
 
   // 使用 useCallback 优化回调函数
   const handleNewConversation = React.useCallback(() => {
@@ -233,6 +234,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <User className="w-4 h-4" />
           <span className="group-data-[collapsible=icon]:hidden">我的命盘</span>
         </Button>
+        <Button 
+          variant="outline" 
+          className="w-full justify-start gap-2" 
+          onClick={() => setChartManagerOpen(true)}
+        >
+          <Settings className="w-4 h-4" />
+          <span className="group-data-[collapsible=icon]:hidden">排盘管理</span>
+        </Button>
         <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center opacity-60">
           <Sparkles className="w-3 h-3" />
           <span className="group-data-[collapsible=icon]:hidden font-light tracking-wide">奇门遁甲 AI</span>
@@ -240,6 +249,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarFooter>
       <SidebarRail />
       <UserProfileDialog />
+      <ChartManagerDialog />
     </Sidebar>
   )
 }

@@ -1,6 +1,7 @@
 import { QimenReport } from '@/types/qimen'
 import { nanoid } from 'nanoid'
 import { ChatMessage, MessageRole } from '@/types/chatmessage'
+import { PersonProfile } from '@/store/useUserStore'
 
 /**
  * AI服务类
@@ -73,11 +74,12 @@ export class AIService {
     message: string,
     conversationHistory: ChatMessage[] = [],
     qimenReport?: QimenReport,
-    birthChart?: QimenReport | null
+    birthChart?: QimenReport | null,
+    contextCharts?: PersonProfile[]
   ): Promise<ChatMessage> {
     try {
       // 构建消息数组
-      const messages = this.buildMessages(conversationHistory, message, qimenReport, birthChart)
+      const messages = this.buildMessages(conversationHistory, message, qimenReport, birthChart, contextCharts)
       
       // 调用SiliconFlow API (via backend)
       const response = await this.callSiliconFlowAPI(messages)
@@ -114,10 +116,11 @@ export class AIService {
     birthChart: QimenReport | null | undefined,
     onChunk: (chunk: string) => void,
     onComplete: (fullContent: string) => void,
-    onError: (error: Error) => void
+    onError: (error: Error) => void,
+    contextCharts?: PersonProfile[]
   ): Promise<void> {
     try {
-      const messages = this.buildMessages(conversationHistory, message, qimenReport, birthChart)
+      const messages = this.buildMessages(conversationHistory, message, qimenReport, birthChart, contextCharts)
       
       const response = await fetch(this.API_ENDPOINT, {
         method: 'POST',
@@ -184,7 +187,8 @@ export class AIService {
     history: ChatMessage[], 
     newMessage: string,
     qimenReport?: QimenReport,
-    birthChart?: QimenReport | null
+    birthChart?: QimenReport | null,
+    contextCharts?: PersonProfile[]
   ) {
     // 转换历史消息格式
     // 过滤掉 'report' 类型的消息，只保留 'text' 类型的对话
@@ -198,6 +202,26 @@ export class AIService {
     // 如果有奇门排盘结果，将其作为上下文添加到系统提示中
     let systemPrompt = this.SYSTEM_PROMPT
     
+    if (contextCharts && contextCharts.length > 0) {
+      let chartsContext = '\n## 关联命盘信息（上下文注入）\n当用户询问特定人物（如"张三"）或进行关系合盘时，请参考以下信息：\n'
+      contextCharts.forEach(profile => {
+        if (!profile.birthChart) return
+        const { basicInfo, tianpan, dipan, renpan, shenpan } = profile.birthChart.result
+        chartsContext += `
+### ${profile.name} (${profile.gender === 'male' ? '男' : '女'})
+- 出生时间: ${profile.birthChart.result.basicInfo.gongli}
+- 四柱: ${basicInfo.sizhu}
+- 局数: ${basicInfo.dunju}
+- 值符/值使: ${basicInfo.zhifu} / ${basicInfo.zhishi}
+- 天盘: ${tianpan.join(', ')}
+- 地盘: ${dipan.join(', ')}
+- 人盘: ${renpan.join(', ')}
+- 神盘: ${shenpan.join(', ')}
+`
+      })
+      systemPrompt += chartsContext
+    }
+
     if (birthChart) {
       const { basicInfo, tianpan, dipan, renpan, shenpan } = birthChart.result
       

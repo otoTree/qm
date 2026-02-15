@@ -8,10 +8,13 @@ import { QimenInput } from '@/types/qimen'
 import { useQimenStore } from '@/store/useQimenStore'
 import { useConversationStore } from '@/store/useConversationStore'
 import { useChatStore } from '@/store/useChatStore'
-import { useUserStore } from '@/store/useUserStore'
+import { useUserStore, PersonProfile } from '@/store/useUserStore'
 import { AIService } from '@/lib/ai-service'
 import { MessageRole } from '@/types/chatmessage'
 import { nanoid } from 'nanoid'
+import { cn } from '@/lib/utils'
+
+import { Clock } from 'lucide-react'
 
 interface ChatInputProps {
   onQimenGenerated?: (reportId: string) => void
@@ -23,6 +26,11 @@ export function ChatInput({ onQimenGenerated, onMessageSent, className }: ChatIn
   const [isLoading, setIsLoading] = useState(false)
   const [chatMessage, setChatMessage] = useState('')
   const [isFocused, setIsFocused] = useState(false)
+  
+  // Mention state
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [cursorPosition, setCursorPosition] = useState(0)
   
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   
@@ -37,8 +45,23 @@ export function ChatInput({ onQimenGenerated, onMessageSent, className }: ChatIn
     currentConversationId 
   } = useConversationStore()
   const { addMessage, updateMessage } = useChatStore()
-  const { profile } = useUserStore()
+  const { profile, savedProfiles } = useUserStore()
   
+  // Filtered profiles for mention
+  const timeProfile: PersonProfile = {
+    id: 'current-time',
+    name: '时盘',
+    gender: 'male', // placeholder
+    birthDate: new Date(), // placeholder
+    birthChart: null
+  }
+
+  const allProfiles = [timeProfile, ...savedProfiles]
+  
+  const filteredProfiles = mentionQuery !== null 
+    ? allProfiles.filter(p => p.name.toLowerCase().includes(mentionQuery.toLowerCase()))
+    : []
+
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
@@ -47,6 +70,43 @@ export function ChatInput({ onQimenGenerated, onMessageSent, className }: ChatIn
     }
   }, [chatMessage])
   
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newValue = e.target.value
+    setChatMessage(newValue)
+    
+    const selectionStart = e.target.selectionStart
+    const textBeforeCursor = newValue.slice(0, selectionStart)
+    const lastAtSymbol = textBeforeCursor.lastIndexOf('@')
+    
+    if (lastAtSymbol !== -1) {
+      const query = textBeforeCursor.slice(lastAtSymbol + 1)
+      // Check if query contains space (end of mention)
+      if (!query.includes(' ') && !query.includes('\n')) {
+        setMentionQuery(query)
+        setCursorPosition(lastAtSymbol)
+        setMentionIndex(0)
+        return
+      }
+    }
+    setMentionQuery(null)
+  }
+
+  const handleSelectProfile = (selectedProfile: PersonProfile) => {
+    if (mentionQuery === null) return
+    
+    const before = chatMessage.slice(0, cursorPosition)
+    const after = chatMessage.slice(cursorPosition + mentionQuery.length + 1)
+    const newValue = `${before}@${selectedProfile.name} ${after}`
+    
+    setChatMessage(newValue)
+    setMentionQuery(null)
+    
+    // Focus back to textarea
+    if (textareaRef.current) {
+        textareaRef.current.focus()
+    }
+  }
+
   const handleChatSubmit = async () => {
     if (!chatMessage.trim()) return
     
@@ -55,12 +115,30 @@ export function ChatInput({ onQimenGenerated, onMessageSent, className }: ChatIn
     
     setIsLoading(true)
     
+    // Extract mentions
+    const mentionedNames = messageToSend.match(/@(\S+)/g)?.map(s => s.slice(1)) || []
+    const contextCharts = savedProfiles.filter(p => mentionedNames.includes(p.name))
+    const hasTimeChartMention = mentionedNames.includes('时盘')
+    
     try {
       let currentConv = getCurrentConversation()
       let conversationId = currentConv?.id || currentConversationId
 
-      // 1. 如果没有当前对话或当前对话没有排盘，先自动排盘
-      if (!currentConv || !currentConv.qimenReport) {
+      // 1. 自动排盘逻辑
+      // 默认情况：如果没有当前对话或当前对话没有排盘，会自动起时盘
+      // 修改后：
+      // - 如果有 @时盘 -> 强制起时盘
+      // - 如果没有 @时盘 但有其他 @人物 -> 跳过起时盘 (合盘/命盘分析模式)
+      // - 如果都没有：
+      //   - 如果没有当前对话 -> 起时盘
+      //   - 如果有当前对话且是新对话（空消息）且无排盘 -> 起时盘
+      //   - 如果有当前对话且已有消息 -> 不起盘（追问）
+      
+      const isNewEmptyConversation = !currentConv || (currentConv.messages.length === 0 && !currentConv.qimenReport)
+      
+      const shouldGenerateTimeChart = hasTimeChartMention || (mentionedNames.length === 0 && isNewEmptyConversation)
+
+      if (shouldGenerateTimeChart) {
         const now = new Date()
         const input: QimenInput = {
             datetime: now,
@@ -104,6 +182,12 @@ export function ChatInput({ onQimenGenerated, onMessageSent, className }: ChatIn
             // 更新 currentConv 引用
             currentConv = useConversationStore.getState().getCurrentConversation()
         }
+      } else if (!currentConv) {
+        // 如果不需要起局且没有当前对话，创建一个空对话（纯聊天/合盘分析模式）
+        const title = mentionedNames.length > 0 ? `与 ${mentionedNames.join('、')} 的对话` : '新对话'
+        conversationId = createConversation(title)
+        setCurrentConversation(conversationId)
+        currentConv = useConversationStore.getState().getCurrentConversation()
       }
     
       // 2. 添加用户消息
@@ -167,7 +251,8 @@ export function ChatInput({ onQimenGenerated, onMessageSent, className }: ChatIn
                 updateMessageInConversation(conversationId, aiMessageId, errorMsg)
             }
             updateMessage(aiMessageId, errorMsg)
-        }
+        },
+        contextCharts
       )
       
     } catch (error) {
@@ -191,6 +276,28 @@ export function ChatInput({ onQimenGenerated, onMessageSent, className }: ChatIn
   }
   
   const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (mentionQuery !== null && filteredProfiles.length > 0) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionIndex(prev => (prev - 1 + filteredProfiles.length) % filteredProfiles.length)
+        return
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setMentionIndex(prev => (prev + 1) % filteredProfiles.length)
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        handleSelectProfile(filteredProfiles[mentionIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        setMentionQuery(null)
+        return
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleChatSubmit()
@@ -199,6 +306,29 @@ export function ChatInput({ onQimenGenerated, onMessageSent, className }: ChatIn
   
   return (
     <div className={`relative group ${className}`}>
+      {/* Mention Popup */}
+      {mentionQuery !== null && filteredProfiles.length > 0 && (
+        <div className="absolute bottom-full left-0 mb-2 w-64 bg-popover text-popover-foreground rounded-md border shadow-md z-50 overflow-hidden">
+          <div className="p-1">
+            {filteredProfiles.map((p, index) => (
+              <div
+                key={p.id}
+                className={cn(
+                  "flex items-center gap-2 px-2 py-1.5 text-sm rounded-sm cursor-pointer",
+                  index === mentionIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                )}
+                onClick={() => handleSelectProfile(p)}
+              >
+                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px]">
+                  {p.id === 'current-time' ? <Clock className="h-3 w-3" /> : p.name[0]}
+                </div>
+                <span>{p.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div 
         className={`
           relative flex flex-col transition-all duration-300
@@ -209,7 +339,7 @@ export function ChatInput({ onQimenGenerated, onMessageSent, className }: ChatIn
             <Textarea
               ref={textareaRef}
               value={chatMessage}
-              onChange={(e) => setChatMessage(e.target.value)}
+              onChange={handleInputChange}
               onKeyDown={handleKeyPress}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}

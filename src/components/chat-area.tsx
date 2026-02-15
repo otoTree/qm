@@ -13,6 +13,7 @@ import { useQimenStore } from '@/store/useQimenStore'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { QimenReport } from '@/components/qimen-report'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import {
   Dialog,
   DialogContent,
@@ -95,6 +96,7 @@ const MessageItem = ({ message }: { message: ChatMessage }) => {
                ) : (
                  <div className="prose prose-sm prose-stone dark:prose-invert max-w-none prose-p:leading-7 prose-p:my-2 prose-headings:font-serif prose-headings:font-normal prose-strong:font-medium">
                     <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
                         components={{
                             // 移除默认的段落 margin，使用 prose 类控制
                             p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />
